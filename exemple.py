@@ -68,3 +68,4 @@ print("- Final Result -")
 
 for sentence in translated_corpus:
     print(sentence)
+    
