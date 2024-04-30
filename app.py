@@ -1,0 +1,139 @@
+from io import BytesIO
+from flask import Flask, jsonify, request, render_template, url_for, redirect
+import requests
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
+import PyPDF2
+from PyPDF2 import PdfReader
+from translate import Translator
+import spacy
+from langdetect import detect, detect_langs
+import en_core_web_lg
+import pandas as pd
+import warnings
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.feature_extraction._stop_words import ENGLISH_STOP_WORDS
+
+warnings.filterwarnings(action='ignore')
+
+nlp = spacy.load("en_core_web_lg")
+pdf_target_url = f"https://api.akabot-staging.zetta-demo.space/fileuploads/Artificial-Intelligence-in-Finance-6a364d95-f26c-41e6-a3a1-54f9b9f975d2.pdf"
+
+
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///test.db'
+db = SQLAlchemy(app)
+
+def process_pdf(pdf_url):
+    ### File Traitement ###
+    # Opening it
+    response = requests.get(pdf_url)
+    if response.status_code == 200:
+        myfile = BytesIO(response.content)
+    pdf_reader = PdfReader(myfile)
+    pages=[]
+    # Storing it
+    for i in range(pdf_reader._get_num_pages()):
+        pages.append(pdf_reader.pages[i])
+    all_pages = pdf_reader.pages[0:]
+    #closing the reeader
+    myfile.close
+    ### Spacy traitment ###
+    # Storing the language model
+    example=pages[0].extract_text()
+    
+
+    # Tokenization
+    data = []
+    doc1 = nlp(example)
+
+    for token in doc1:
+        data.append(token.text)
+
+    
+    corpus = example.lower().split('.')
+    # corpus.remove('')
+    # corpus.remove(' ')
+
+    return corpus
+
+def vectorization(corpus):
+    # Vectorization
+
+    vectoriser = TfidfVectorizer()
+
+    #learn the vocab
+    X = vectoriser.fit_transform(corpus)
+    print(vectoriser.get_feature_names_out)
+    
+
+def detect_translate(text):
+
+# Language detection & translation
+    corpus = text
+    translated_corpus = []
+
+    for sentence in corpus[0:10]:
+        translate_in_french = Translator(from_lang=(detect(sentence)), to_lang='fr')
+
+        if detect(sentence) == 'en':
+            print('This sentence is in English.')
+            translated_corpus.append(translate_in_french.translate(sentence))
+        elif detect(sentence) == 'fr':
+            print('This sentence is in French.')
+            translated_corpus.append(sentence)
+        elif detect(sentence) != 'fr' and detect(sentence) != 'en' :
+            print("This sentence is neither an English nor a French sentence.")
+            translated_corpus.append(sentence)
+
+    print("- Final Result -")
+
+    for sentence in translated_corpus:
+        print(sentence)
+
+    return translated_corpus
+    
+def calculate_similarity(text1, text2):
+    # logger.info("Calculating Similarity between two texts")
+    doc1 = nlp(text1)
+    doc2 = nlp(text2)
+    return doc1.similarity(doc2)
+
+class Todo(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.String(200), nullable=False)
+    translation = db.Column(db.String(200), nullable=True)
+    text_similiarity = db.Column(db.Double, default=0)
+    date_created = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return '<sentence %r>' % self.id
+
+@app.route('/', methods=['POST', 'GET'])
+
+def index():
+    similarity = []
+    corpus = process_pdf(pdf_url=pdf_target_url)
+    translated_corpus = detect_translate(corpus)
+    for i in range(len(corpus)):
+        similarity.append(calculate_similarity(corpus[i], translated_corpus[i]))
+        try:
+            db.session.add(corpus[i], translated_corpus[i], similarity[i])
+            db.session.commit()
+            return redirect('/')
+        except Exception as e:
+            return f'Error 404 : {e}'
+
+    
+    else: 
+        sentences = Todo.query.order_by(Todo.date_created).all()
+        return render_template('index.html', sentences=sentences)
+    
+
+
+
+
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
