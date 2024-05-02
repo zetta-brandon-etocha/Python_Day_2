@@ -17,19 +17,17 @@ from sklearn.feature_extraction._stop_words import ENGLISH_STOP_WORDS
 warnings.filterwarnings(action='ignore')
 
 nlp = spacy.load("en_core_web_lg")
-pdf_target_url = "https://api.akabot-staging.zetta-demo.space/fileuploads/Artificial-Intelligence-in-Finance-6a364d95-f26c-41e6-a3a1-54f9b9f975d2.pdf"
+pdf_target_url = f"https://api.akabot-staging.zetta-demo.space/fileuploads/Artificial-Intelligence-in-Finance-6a364d95-f26c-41e6-a3a1-54f9b9f975d2.pdf"
 
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///test.db'
+db = SQLAlchemy(app)
 
-
-data = []
-
-def process_the_pdf():
+def process_pdf(pdf_url):
     ### File Traitement ###
     # Opening it
-    response = requests.get(pdf_target_url)
+    response = requests.get(pdf_url)
     if response.status_code == 200:
         myfile = BytesIO(response.content)
     pdf_reader = PdfReader(myfile)
@@ -37,6 +35,7 @@ def process_the_pdf():
     # Storing it
     for i in range(pdf_reader._get_num_pages()):
         pages.append(pdf_reader.pages[i])
+    all_pages = pdf_reader.pages[0:]
     #closing the reeader
     myfile.close
     ### Spacy traitment ###
@@ -46,27 +45,26 @@ def process_the_pdf():
 
     # Tokenization
     data = []
-    doc1 = example.replace('\n',' ').split('.')
+    doc1 = nlp(example)
 
     for token in doc1:
-        data.append(token)
+        data.append(token.text)
 
     
-    # data = example.lower().split('.')
+    corpus = example.lower().split('.')
     # corpus.remove('')
     # corpus.remove(' ')
-    print(data)
-    return data[1:]
+
+    return corpus
 
 def vectorization(corpus):
     # Vectorization
-    
+
     vectoriser = TfidfVectorizer()
 
     #learn the vocab
     X = vectoriser.fit_transform(corpus)
     print(vectoriser.get_feature_names_out)
-    return X
     
 
 def detect_translate(text):
@@ -75,21 +73,17 @@ def detect_translate(text):
     corpus = text
     translated_corpus = []
 
-    for sentence in corpus:
-        
+    for sentence in corpus[0:10]:
+        translate_in_french = Translator(from_lang=(detect(sentence)), to_lang='fr')
 
         if detect(sentence) == 'en':
-            translate_in_french = Translator(from_lang=(detect(sentence)), to_lang='fr')
             print('This sentence is in English.')
             translated_corpus.append(translate_in_french.translate(sentence))
         elif detect(sentence) == 'fr':
             print('This sentence is in French.')
             translated_corpus.append(sentence)
-        elif (detect(sentence) != 'fr' or detect(sentence) != 'en') :
+        elif detect(sentence) != 'fr' and detect(sentence) != 'en' :
             print("This sentence is neither an English nor a French sentence.")
-            translated_corpus.append(sentence)
-        else :
-            print('No feature')
             translated_corpus.append(sentence)
 
     print("- Final Result -")
@@ -105,35 +99,47 @@ def calculate_similarity(text1, text2):
     doc2 = nlp(text2)
     return doc1.similarity(doc2)
 
+class Todo(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.String(200), nullable=False)
+    translation = db.Column(db.String(200), nullable=True)
+    text_similiarity = db.Column(db.Double, default=0)
+    date_created = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return '<sentence %r>' % self.id
+    
+final_tab = []
 
 @app.route('/process_pdf', methods=['POST', 'GET'])
 
 def process_pdf():
-    final_tab = []
-    the_data = process_the_pdf()
+    similarity = []
+    corpus = process_pdf(pdf_url=pdf_target_url)
+    translated_corpus = detect_translate(corpus)
+    for i in range(len(corpus)):
+        similarity.append(calculate_similarity(corpus[i], translated_corpus[i]))
+        try:
+            #db.session.add(corpus[i], translated_corpus[i], similarity[i])
+            db.session.commit()
+            result_pdf = {
+                'sentence' : corpus[i],
+                'translate' : translated_corpus[i],
+                'similarity' : similarity[i]
+            }
+            final_tab.append(result_pdf)
+
+            return redirect('/')
+        except Exception as e:
+            return f'Error 404 : {e}'
+    return jsonify(final_tab)
+
+    # else: 
+    #     sentences = Todo.query.order_by(Todo.date_created).all()
+    #     return render_template('index.html', sentences=sentences)
     
-    the_translation = detect_translate(the_data[0:5])
-    print("translation", the_translation)
-    for i in range(5):
-        the_similarity = calculate_similarity(the_data[i], the_translation[i])
 
-        print(f"step {i}")
-        result_analyze = {
-            'sentence' : the_data[i],
-            'translation' : the_translation[i],
-            'similarity' : the_similarity
-        }
-        print("result : ", result_analyze)
-        final_tab.append(result_analyze)
-        print("final_tab : ", final_tab)
-    return final_tab
-
-
-@app.route('/view_pdf', methods=['GET'])
-def view_pdf():
-    # Call your process_pdf function to get the data
-    final_tab = process_pdf()
-    return render_template('index.html', data=final_tab)
+print(final_tab)
 
 
 

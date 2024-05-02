@@ -1,22 +1,23 @@
 {% extends 'base.html' %}
 
 {% block head %}
-
 <title>Pdf Traitement</title>
-
 {% endblock %}
 
 {% block body %}
-
+<h1 id="header">Results of PDF analysis</h1>
 <table id="Table">
     <tr>
         <th>Content</th>
         <th>Translated</th>
         <th>Similarity value</th>
     </tr>
-
+    {% for item in data %}
+    <tr>
+        <td>{{ item['sentence'] }}</td>
+        <td>{{ item['translation'] }}</td>
+        <td>{{ item['similarity'] }}</td>
+    </tr>
+    {% endfor %}
 </table>
-
-
 {% endblock %}
-
